@@ -12,7 +12,6 @@ import copy
 import functools
 import timeit
 import math
-import sympy
 import random
 import re
 import shutil
@@ -73,6 +72,7 @@ class madSymbolicInterface(master_interface.MasterCmd, madgraph_interface.CmdExt
             'verbosity': 1,
             'gammaloop_path': None
         }
+
         self.gammaloop_interface = None
 
         super(madSymbolicInterface, self).__init__(*args, **opts)
@@ -515,9 +515,9 @@ class madSymbolicInterface(master_interface.MasterCmd, madgraph_interface.CmdExt
             if self.madsymbolic_options['gammaloop_path'] is not None and self.madsymbolic_options['gammaloop_path'] not in sys.path:
                 sys.path.insert(0, self.madsymbolic_options['gammaloop_path'])
             import gammaloop  # type: ignore
-        except ImportError:
+        except ImportError as e:
             raise madSymbolicInvalidCmd(
-                "gammaloop package does not appear to be installed. You can install it with `pip install gammaloop`.")
+                "gammaloop package does not appear to be installed or its import failed. You can install it with `pip install gammaloop`. Error: %s" % str(e))
 
         if self.gammaloop_interface is None:
             self.do_reset_gammaloop('')
