@@ -490,12 +490,12 @@ class madSymbolicInterface(master_interface.MasterCmd, madgraph_interface.CmdExt
         try:
             if self.madsymbolic_options['gammaloop_path'] is not None and self.madsymbolic_options['gammaloop_path'] not in sys.path:
                 sys.path.insert(0, self.madsymbolic_options['gammaloop_path'])
-            import gammaloop  # type: ignore
+            from gammaloop.interface.gammaloop_interface import GammaLoop, CommandList  # type: ignore
         except ImportError:
             raise madSymbolicInvalidCmd(
                 "gammaloop package does not appear to be installed. You can install it with `pip install gammaloop`.")
 
-        self.gammaloop_interface = gammaloop.GammaLoop()
+        self.gammaloop_interface = GammaLoop()
 
         model_path_with_restriction = self._curr_model.get(
             'modelpath+restriction')
@@ -505,7 +505,7 @@ class madSymbolicInterface(master_interface.MasterCmd, madgraph_interface.CmdExt
                 MG5DIR, 'models', model_path_with_restriction)
             model_path = os.path.join(MG5DIR, 'models', model_path)
 
-        self.gammaloop_interface.run(gammaloop.CommandList.from_string(
+        self.gammaloop_interface.run(CommandList.from_string(
             f"import_model {model_path_with_restriction} --format ufo"))
 
     def do_gL(self, line):
@@ -514,7 +514,7 @@ class madSymbolicInterface(master_interface.MasterCmd, madgraph_interface.CmdExt
         try:
             if self.madsymbolic_options['gammaloop_path'] is not None and self.madsymbolic_options['gammaloop_path'] not in sys.path:
                 sys.path.insert(0, self.madsymbolic_options['gammaloop_path'])
-            import gammaloop  # type: ignore
+            from gammaloop.interface.gammaloop_interface import CommandList  # type: ignore
         except ImportError as e:
             raise madSymbolicInvalidCmd(
                 "gammaloop package does not appear to be installed or its import failed. You can install it with `pip install gammaloop`. Error: %s" % str(e))
@@ -525,7 +525,7 @@ class madSymbolicInterface(master_interface.MasterCmd, madgraph_interface.CmdExt
         logger.info("Running gammaloop command: %s%s%s" %
                     (utils.bcolors.GREEN, line, utils.bcolors.ENDC))
         self.gammaloop_interface.run(  # type: ignore
-            gammaloop.CommandList.from_string(line))
+            CommandList.from_string(line))
 
     def get_madsymbolic_banner(self):
         """ Returns a string of alpha loop banner."""

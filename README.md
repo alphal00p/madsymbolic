@@ -66,7 +66,7 @@ define q = u u~ d d~
 generate q q > d d~ g [virt=QCD]
 write_graphs test_madsymbolic_output --format yaml
 gL import_graphs test_madsymbolic_output/loop_amplitude_0_ddx_ddxg.yaml --format yaml
-gL output test_gammaloop_output
+gL output test_gammaloop_output -mr -num -nf mathematica
 ```
 
 and run it with `./bin/mg5_aMC --mode=madsymbolic test.madsym`.
