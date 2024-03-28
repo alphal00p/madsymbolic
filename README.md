@@ -13,7 +13,7 @@ In particular, the amplitude expressions can be processed symbolically using [*g
 
 *PS: Note that for now, you need to work using the [*MadSymbolic* branch](https://github.com/alphal00p/gammaloop/tree/madsymbolic) of *gammaLoop**.
 
-Then you can install *MadSymbolic* by placing the git clone into the PLUGIN directory of your *MG5aMC* installation.
+Then you can install *madsymbolic* by placing the git clone into the PLUGIN directory of your *MG5aMC* installation.
 
 ## Usage
 
@@ -59,7 +59,7 @@ Here is a simple example run of *MadSymbolic* with *MG5aMC* to generate all diag
 
 ```bash
 # Only necessary if you the gammaloop Python library is not in your PYTHONPATH
-set_madsymbolic_option gammaloop_path ~/Documents/Work/gammaloop
+set_madsymbolic_option gammaloop_path PATH/TO/YOUR/GAMMALOOP/INSTALLATION
 import model sm-no_widths
 force_loop_model
 define q = u u~ d d~
@@ -78,3 +78,5 @@ cd test_gammaloop_output/sources/amplitudes/loop_amplitude_0_ddx_ddxg/drawings
 make -j 16
 open feynman_diagrams.pdf
 ```
+
+And the numerator expressions in `test_gammaloop_output/sources/amplitudes/loop_amplitude_0_ddx_ddxg/numerator`.
