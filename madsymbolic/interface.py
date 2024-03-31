@@ -21,6 +21,7 @@ import os
 import sys
 import copy
 import yaml
+from pathlib import Path
 
 
 class NoAliasDumper(yaml.SafeDumper):
@@ -507,6 +508,184 @@ class madSymbolicInterface(master_interface.MasterCmd, madgraph_interface.CmdExt
 
         self.gammaloop_interface.run(CommandList.from_string(
             f"import_model {model_path_with_restriction} --format ufo"))
+
+    # import_graphs command
+    generate_pysecdec_parser = ArgumentParser(prog='generate_pysecdec_run')
+    generate_pysecdec_parser.add_argument('gammaloop_output_path', metavar='gammaloop_output_path', type=str,
+                                          help='Gammaloop output directory to write the diagrams to.')
+    generate_pysecdec_parser.add_argument('--graph_name', '-gn', type=str, default=None,
+                                          help='Amplitude name to build pysecdec output for.')
+    generate_pysecdec_parser.add_argument('--deformation', '-d', action="store_true", dest="deformation", default=False,
+                                          help="Enable contour deformation in pySecDec output.")
+
+    def do_generate_pysecdec_run(self, line):
+
+        args = self.generate_pysecdec_parser.parse_args(
+            madSymbolicInterface.split_str_args(line))
+
+        if args.graph_name is None:
+            raise madSymbolicInvalidCmd("Amplitude name must be specified.")
+
+        if not Path(pjoin(args.gammaloop_output_path, 'output_metadata.yaml')).exists():
+            raise madSymbolicInvalidCmd(
+                f"Cross-section or amplitude path '{args.gammaloop_output_path}' does not appear valid.")
+
+        if self.gammaloop_interface is None:
+            self.do_reset_gammaloop('')
+
+        from gammaloop.exporters.exporters import OutputMetaData  # type: ignore
+        from gammaloop.base_objects.model import Model, InputParamCard  # type: ignore
+        from gammaloop.base_objects.param_card import ParamCard, ParamCardWriter  # type: ignore
+        import gammaloop.cross_section.cross_section as cross_section  # type: ignore
+
+        with open(pjoin(args.gammaloop_output_path, 'output_metadata.yaml'), 'r', encoding='utf-8') as file:
+            output_metadata = OutputMetaData.from_yaml_str(file.read())
+
+        # Sync the model with the one used in the output
+        with open(pjoin(args.gammaloop_output_path, 'sources', 'model', f"{output_metadata['model_name']}.yaml"), 'r', encoding='utf-8') as file:
+            model = Model.from_yaml(file.read())
+        model.apply_input_param_card(InputParamCard.from_param_card(
+            ParamCard(pjoin(args.gammaloop_output_path, 'cards', 'param_card.dat')), model), simplify=False)
+
+        # Depending on the type of output, sync cross-section or amplitude
+        if output_metadata['output_type'] != 'amplitudes':
+            raise madSymbolicInvalidCmd(
+                "Only amplitude output is supported for PySecDec generation.")
+
+        amplitudes = cross_section.AmplitudeList()
+        for amplitude_name in output_metadata['contents']:
+            with open(pjoin(args.gammaloop_output_path, 'sources', 'amplitudes', f'{amplitude_name}', 'amplitude.yaml'), 'r', encoding='utf-8') as file:
+                amplitude_yaml = file.read()
+                amplitudes.add_amplitude(
+                    cross_section.Amplitude.from_yaml_str(model, amplitude_yaml))
+
+        # Find the desired graph
+        graph = None
+        for amplitude in amplitudes:
+            for g in amplitude.amplitude_graphs:
+                if g.graph.name == args.graph_name:
+                    graph = g.graph
+                    break
+
+        if graph is None:
+            raise madSymbolicInvalidCmd(
+                f"Graph '{args.graph_name}' not found in amplitude '{args.gammaloop_output_path}'.")
+
+        sorted_vertices = sorted(
+            [v.name for i, v in enumerate(graph.vertices)])
+        vertex_order_map = {v: i+1 for i, v in enumerate(sorted_vertices)}
+        vertex_map = {v.name: v for v in graph.vertices}
+        edge_masses = {}
+        for edge in graph.edges:
+            edge_masses[edge.name] = edge.particle.mass.name
+        signature_powers = {}
+        edge_to_sig_power_key = {}
+        for prop_name, sig in graph.edge_signatures.items():
+            key = (tuple(sig[0]), tuple(sig[1]), edge_masses[prop_name])
+            edge_to_sig_power_key[prop_name] = key
+            if key in signature_powers:
+                signature_powers[key].append(prop_name)
+            else:
+                signature_powers[key] = [prop_name]
+
+        edge_map = {e.name: e for e in graph.edges}
+        unique_edges = [sig_value[0]
+                        for sig_value in signature_powers.values()]
+
+        incoming_vertices = [c[0].name
+                             for c in graph.external_connections if c[1] is None]
+        outgoing_vertices = [c[1].name
+                             for c in graph.external_connections if c[0] is None]
+        external_vertices = incoming_vertices+outgoing_vertices
+        incoming_edges = [
+            vertex_map[iv].edges[0].name for iv in incoming_vertices]
+        outgoing_edges = [
+            vertex_map[ov].edges[0].name for ov in outgoing_vertices]
+        sorted_externals = sorted([ext for ext in incoming_edges+outgoing_edges],
+                                  key=lambda e: (edge_to_sig_power_key[e][1].index(1) if 1 in edge_to_sig_power_key[e][1] else edge_to_sig_power_key[e][1].index(-1)))
+        external_connection_points = [
+            (vertex_order_map[edge_map[ext].vertices[1].name] if edge_map[ext].vertices[
+                0].name in external_vertices else vertex_order_map[edge_map[ext].vertices[0].name]
+             ) for ext in sorted_externals
+        ]
+        propagators = []
+        masses = []
+        prop_powers = []
+        n_loops = 0
+        for (loop_sig, ext_sig, mass), edges in signature_powers.items():
+            if all(e in sorted_externals for e in edges):
+                continue
+            n_loops = len(loop_sig)
+            components = []
+            for il, s in enumerate(loop_sig):
+                if s == 0:
+                    continue
+                components.extend(['+' if s > 0 else '-', f"k{il+1:d}"])
+            for iext, s in enumerate(ext_sig):
+                if s == 0:
+                    continue
+                components.extend(['+' if s > 0 else '-', f"p{iext+1:d}"])
+            if components[0] == '+':
+                components = components[1:]
+            new_propagator = f"({''.join(components)})**2"
+
+            if mass.upper() != 'ZERO':
+                if mass not in masses:
+                    masses.append(mass)
+                new_propagator = new_propagator + f"-{mass}_sq"
+            propagators.append(new_propagator)
+            prop_powers.append(len(edges))
+
+        replacement_rules = []
+        for i in range(1, len(external_vertices)+1):
+            for j in range(i, len(external_vertices)+1):
+                replacement_rules.append(
+                    (f"p{i}*p{j}", f"p{i}{j}"))
+
+        if not os.path.isdir(pjoin(args.gammaloop_output_path, 'pysecdec')):
+            os.mkdir(pjoin(args.gammaloop_output_path, 'pysecdec'))
+
+        lorentz_indices = []
+        with open(pjoin(args.gammaloop_output_path, 'pysecdec', f'numerator_{args.graph_name}.txt'), 'w', encoding='utf-8') as out_file:
+            out_file.write('1')
+
+        default_externals = []
+        for i in range(1, len(external_vertices)+1):
+            default_externals.append([4.*i, 4.*i-1., 4.*i-2., 4.*i-3.])
+
+        repl_dict = {
+            'drawing_input_internal_lines': str([[e_name, [vertex_order_map[v.name] for v in edge_map[e_name].vertices]] for e_name in unique_edges if e_name not in sorted_externals]),  # [[e.name, [vertex_map[v] for v in e.vertices]] for e in graph.edges],  # Ex. [['pq1', [7, 5]], ['pq2', [6, 8]], ['pq3', [9, 7]], ['pq4', [7, 10]], ['pq5', [8, 9]], ['pq6', [10, 8]], ['pq7', [10, 9]]] # nopep8
+            'drawing_input_power_list': str([len(signature_powers[edge_to_sig_power_key[e_name]]) for e_name in unique_edges if e_name not in sorted_externals]),  # Ex. [1, 1, 1, 1, 1, 1, 1] # nopep8
+            'drawing_input_external_lines': str([
+               [ext, vert] for ext, vert in zip(sorted_externals, external_connection_points)
+            ]),  # Ex. [['q1', 5], ['q2', 5], ['q3', 6], ['q4', 6]] # nopep8
+            'propagators': str(propagators),  # Ex. ['(-p1-p2)**2', '(-p1-p2)**2', '(k1-p1-p2)**2', '(k1)**2', '(k2-p1-p2)**2', '(k2)**2', '(k1-k2)**2'] # nopep8
+            'loop_momenta': str([f'k{il}' for il in range(1, n_loops+1)]),  # Ex. ['k1', 'k2'] # nopep8
+            'external_momenta': str([f'p{iext}' for iext in range(1, len(external_vertices)+1)]),  # Ex. ['p1', 'p2'] # nopep8
+            'lorentz_indices': str(lorentz_indices),  # Ex. ['mu1', 'mu2', 'mu3', 'mu4', 'mu5', 'mu6', 'mu7',....] # nopep8
+            'power_list': str(prop_powers),  # Ex. [1, 1, 1, 1, 1, 1, 1] # nopep8
+            'numerator_path': f'./numerator_{args.graph_name}.txt',  # Ex. ./numerator_0.txt # nopep8
+            'replacement_rules': str(replacement_rules),  # Ex. [('p1*p1', 'p11'), ('p1*p2', 'p12'), ('p2*p2', 'p22')] # nopep8
+            'real_parameters': str([f'{m}_sq' for m in masses]+[rr[1] for rr in replacement_rules]),  # Ex. ['p11', 'p12', 'p22'] # nopep8
+            'n_loops': str(n_loops),  # Ex. 2 # nopep8
+            'loop_additional_prefactor': f'( -1./ 9. )**({n_loops})',  # f'( (4*pi)**(-2+eps) )**({n_loops})',  # Ex. '( I*(4*pi)**(-2+eps) )**({n_loops})' # nopep8
+            'max_epsilon_order': 0,  # Ex. 0 # nopep8
+            'contour_deformation': str(args.deformation),  # Ex. 'True' of 'False' # nopep8
+            'complex_parameters_input': '[]',  # Ex. '[]' # nopep8
+            'real_parameters_input': str([model.get_parameter(m).value**2 for m in masses]),  # Ex. '[]' # nopep8
+            'couplings_prefactor': '1',  # Ex. '(1j)*ge**4*gs**2*(-1/float(9))' # nopep8
+            'couplings_values': str({p.mass.name: p.mass.value for p in model.particles}),  # Ex. ''masst': 173.0, 'massb': 4.7, 'massh': 125.0, 'massz': 91.188, 'ge': 0.30795376724436885, ...' # nopep8
+            'additional_overall_factor': '1',  # Ex. 1./4 # nopep8
+            'default_externals': str(default_externals),  # Ex. [(1.0, 0.0, 0.0, 1.0), (1.0, 0.0, 0.0, -1.0), (1.0, 0.0, 0.0, 1.0)] # nopep8
+            'graph_name': args.graph_name,  # Ex. SG_QG0 # nopep8
+        }
+        # from pprint import pprint
+        # pprint(repl_dict)
+        # stop
+
+        with open(pjoin(root_path, os.path.pardir, 'templates', 'run_pysecsec_template.dat'), 'r', encoding='utf-8') as file:
+            with open(pjoin(args.gammaloop_output_path, 'pysecdec', f'run_{args.graph_name}.py'), 'w', encoding='utf-8') as out_file:
+                out_file.write(file.read().format(**repl_dict))
 
     def do_gL(self, line):
         """Run a gammaloop function."""
