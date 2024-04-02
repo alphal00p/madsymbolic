@@ -162,6 +162,14 @@ class madSymbolicInterface(master_interface.MasterCmd, madgraph_interface.CmdExt
         self._curr_model.set('perturbation_couplings',
                              list(self._curr_model.get_coupling_orders()))
 
+    @staticmethod
+    def requires_grassman_flow(particle):
+        if particle.is_fermion():
+            return True
+        if particle.get('ghost'):
+            return True
+        return False
+
     def fix_fermion_flow(self, vertices, edges, entry_edge_ids):
 
         while len(entry_edge_ids) > 0:
@@ -201,7 +209,7 @@ class madSymbolicInterface(master_interface.MasterCmd, madgraph_interface.CmdExt
                 if edges[e_id]['fermion_flow_assigned']:
                     part = self._curr_model.get_particle(
                         edges[e_id]['PDG'])
-                    if part.is_fermion():
+                    if madSymbolicInterface.requires_grassman_flow(part):
                         if edges[e_id]['vertices'][1] == next_vertex_id:  # incoming fermion
                             next_outgoing_fermion_type += (
                                 1 if part['is_part'] else -1)
@@ -238,7 +246,7 @@ class madSymbolicInterface(master_interface.MasterCmd, madgraph_interface.CmdExt
             next_edge_part = self._curr_model.get_particle(
                 next_edge['PDG'])
             next_edge_part_type = 1
-            if next_edge_part.is_fermion():
+            if madSymbolicInterface.requires_grassman_flow(next_edge_part):
                 if abs(next_outgoing_fermion_type) != 1:
                     raise madSymbolicInterfaceError(
                         "Error #5 in Inconsistency fermion-flow fixing.")
