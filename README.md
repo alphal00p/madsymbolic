@@ -9,9 +9,7 @@ In particular, the amplitude expressions can be processed symbolically using [*g
 
 * [*MadGraph5_aMC@NLO*](https://launchpad.net/mg5amcnlo).
 
-* [*gammaLoop*](https://github.com/alphal00p/gammaloop) which you can install from source or with `pip install gammaloop`. 
-
-*PS: Note that for now, you need to work using the [*MadSymbolic* branch](https://github.com/alphal00p/gammaloop/tree/madsymbolic) of *gammaLoop**.
+* [*gammaLoop*](https://github.com/alphal00p/gammaloop) which you can install from source or with `pip install gammaloop`.
 
 Then you can install *madsymbolic* by placing the git clone into the PLUGIN directory of your *MG5aMC* installation.
 
